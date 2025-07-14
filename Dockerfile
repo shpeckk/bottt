@@ -6,6 +6,8 @@ WORKDIR /app
 
 # Копируем все файлы из текущей папки (где Dockerfile) в контейнер
 COPY . /app
+COPY .env .env
+
 
 # Обновляем pip и устанавливаем зависимости из requirements.txt
 RUN pip install --upgrade pip
