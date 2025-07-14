@@ -8,9 +8,12 @@ import os
 load_dotenv()  # загрузить переменные из .env
 
 API_TOKEN = os.getenv('BOT_TOKEN')
-STAFF_CHAT_ID = int(os.getenv('STAFF_CHAT_ID'))  # обязательно конвертируем в int
+STAFF_CHAT_ID = int(os.getenv('STAFF_CHAT_ID'))
 
-# Состояния FSM
+bot = Bot(token=API_TOKEN)
+storage = MemoryStorage()
+dp = Dispatcher(bot, storage=storage)
+
 class OrderHookah(StatesGroup):
     strength = State()
     flavors = State()
@@ -18,7 +21,6 @@ class OrderHookah(StatesGroup):
     phone = State()
     comment = State()
     confirm = State()
-
 # Главное меню
 @dp.message_handler(commands=['start'], state='*')
 async def start_menu(message: types.Message, state: FSMContext):
