@@ -14,6 +14,11 @@ bot = Bot(token=API_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
 
+staff_chat_id_env = os.getenv('STAFF_CHAT_ID')
+if staff_chat_id_env is None:
+    raise ValueError("Переменная окружения STAFF_CHAT_ID не установлена!")
+STAFF_CHAT_ID = int(staff_chat_id_env)
+
 class OrderHookah(StatesGroup):
     strength = State()
     flavors = State()
