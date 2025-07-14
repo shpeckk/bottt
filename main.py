@@ -4,8 +4,8 @@ from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 import os
 
-API_TOKEN = os.getenv("BOT_TOKEN")
-STAFF_CHAT_ID = os.getenv("BOT_STAFF_CHAT_ID")  # Например: -100123456789
+API_TOKEN = os.getenv('7957692959:AAGYNF8vHZaHanfSIxjc-l3rtxBALhJ6PDE')
+STAFF_CHAT_ID = os.getenv(-1002682478434)  # Например: -100123456789
 
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot, storage=MemoryStorage())
