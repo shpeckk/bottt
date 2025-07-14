@@ -1,134 +1,136 @@
-from aiogram import Bot, Dispatcher, executor, types
+from aiogram import Bot, Dispatcher, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
-from dotenv import load_dotenv
+from aiogram.utils.callback_data import CallbackData
 import os
 
-load_dotenv()  # загрузить переменные из .env
+# ───────────────────────────────  конфиг  ───────────────────────────────
+API_TOKEN   = os.getenv("BOT_TOKEN")
+STAFF_CHAT  = int(os.getenv("STAFF_CHAT_ID"))
 
-API_TOKEN = os.getenv('BOT_TOKEN')
-STAFF_CHAT_ID = int(os.getenv('STAFF_CHAT_ID'))
+if not API_TOKEN or not STAFF_CHAT:
+    raise RuntimeError("BOT_TOKEN и STAFF_CHAT_ID должны быть заданы в Render → Environment!")
 
-bot = Bot(token=API_TOKEN)
-storage = MemoryStorage()
-dp = Dispatcher(bot, storage=storage)
+bot = Bot(API_TOKEN, parse_mode="HTML")
+dp  = Dispatcher(bot, storage=MemoryStorage())
 
-staff_chat_id_env = os.getenv('STAFF_CHAT_ID')
-if staff_chat_id_env is None:
-    raise ValueError("Переменная окружения STAFF_CHAT_ID не установлена!")
-STAFF_CHAT_ID = int(staff_chat_id_env)
+# callback‑data для inline‑кнопок
+order_cb = CallbackData("order", "action", "user_id")
 
-class OrderHookah(StatesGroup):
+# ───────────────────────────────  FSM  ───────────────────────────────
+class Order(StatesGroup):
     strength = State()
-    flavors = State()
+    flavors  = State()
     additive = State()
-    phone = State()
-    comment = State()
-    confirm = State()
-# Главное меню
-@dp.message_handler(commands=['start'], state='*')
-async def start_menu(message: types.Message, state: FSMContext):
-    await state.finish()
-    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    keyboard.add("Заказать кальян", "Меню")
-    await message.answer("Добро пожаловать! Выберите действие:", reply_markup=keyboard)
+    phone    = State()
+    comment  = State()
 
-# Начало заказа
-@dp.message_handler(lambda m: m.text == "Заказать кальян", state='*')
-async def order_start(message: types.Message, state: FSMContext):
+# ─────────────────────────────  хэндлеры  ──────────────────────────────
+@dp.message_handler(commands="start", state="*")
+async def cmd_start(m: types.Message, state: FSMContext):
+    await state.finish()
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.add("Заказать кальян", "Меню и цены")
+    await m.answer("Добро пожаловать! Выберите действие:", reply_markup=kb)
+
+@dp.message_handler(lambda x: x.text == "Отмена", state="*")
+async def any_cancel(m: types.Message, state: FSMContext):
+    await state.finish()
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.add("Заказать кальян", "Меню и цены")
+    await m.answer("Отменено. Возвращаемся в меню.", reply_markup=kb)
+
+@dp.message_handler(lambda x: x.text == "Заказать кальян", state="*")
+async def start_order(m: types.Message, state: FSMContext):
     await state.update_data(price=3000, bowl="Кальян на чаше")
-    await OrderHookah.strength.set()
-    cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    cancel_kb.add("Отмена")
-    await message.answer("Выберите крепость кальяна от 1 до 10 (можно диапазон, например: 6-7, 8-10):", reply_markup=cancel_kb)
+    await Order.strength.set()
+    await m.answer("Крепость от 1 до 10 (можно диапазон 6‑7, 8‑10):",
+                   reply_markup=types.ReplyKeyboardMarkup(resize_keyboard=True).add("Отмена"))
 
-# Отмена
-@dp.message_handler(lambda m: m.text == "Отмена", state='*')
-async def cancel_order(message: types.Message, state: FSMContext):
-    await state.finish()
-    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    keyboard.add("Заказать кальян", "Меню")
-    await message.answer("Заказ отменён. Возвращаемся в меню.", reply_markup=keyboard)
+@dp.message_handler(state=Order.strength)
+async def set_strength(m: types.Message, state: FSMContext):
+    await state.update_data(strength=m.text)
+    await Order.next()
+    await m.answer("Пожелания по вкусам (например: Фруктовый с холодком):")
 
-# Крепость
-@dp.message_handler(state=OrderHookah.strength)
-async def set_strength(message: types.Message, state: FSMContext):
-    await state.update_data(strength=message.text)
-    await OrderHookah.next()
-    await message.answer("Напишите пожелания по вкусам (например: Фруктовый с холодком):")
+@dp.message_handler(state=Order.flavors)
+async def set_flavors(m: types.Message, state: FSMContext):
+    await state.update_data(flavors=m.text)
+    kb = (types.ReplyKeyboardMarkup(resize_keyboard=True)
+          .add("Молоко (+200)", "Вино (+400)")
+          .add("Абсент (+500)", "Без добавок (+0)")
+          .add("Отмена"))
+    await Order.next()
+    await m.answer("Выберите добавку:", reply_markup=kb)
 
-# Вкусы
-@dp.message_handler(state=OrderHookah.flavors)
-async def set_flavors(message: types.Message, state: FSMContext):
-    await state.update_data(flavors=message.text)
-    await OrderHookah.next()
+@dp.message_handler(state=Order.additive)
+async def set_additive(m: types.Message, state: FSMContext):
+    prices = {"Молоко (+200)":200, "Вино (+400)":400, "Абсент (+500)":500, "Без добавок (+0)":0}
+    if m.text not in prices:
+        return await m.answer("Выбери кнопку.")
+    await state.update_data(additive=m.text, addon_price=prices[m.text])
+    await Order.next()
+    await m.answer("Телефон (WhatsApp / Telegram):",
+                   reply_markup=types.ReplyKeyboardMarkup(resize_keyboard=True).add("Отмена"))
 
-    buttons = [
-        types.KeyboardButton("Молоко (+200)"),
-        types.KeyboardButton("Вино (+400)"),
-        types.KeyboardButton("Абсент (+500)"),
-        types.KeyboardButton("Без добавок (+0)")
-    ]
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True).add(*buttons)
-    markup.add("Отмена")
-    await message.answer("Выберите добавку:", reply_markup=markup)
+@dp.message_handler(state=Order.phone)
+async def set_phone(m: types.Message, state: FSMContext):
+    await state.update_data(phone=m.text)
+    await Order.next()
+    await m.answer("Комментарий (необязательно) или «-»:",
+                   reply_markup=types.ReplyKeyboardMarkup(resize_keyboard=True).add("Отмена"))
 
-# Добавка
-@dp.message_handler(state=OrderHookah.additive)
-async def set_additive(message: types.Message, state: FSMContext):
-    additives = {
-        "Молоко (+200)": 200,
-        "Вино (+400)": 400,
-        "Абсент (+500)": 500,
-        "Без добавок (+0)": 0
-    }
-    selected = message.text
-    if selected not in additives:
-        await message.answer("Пожалуйста, выбери одну из предложенных добавок.")
-        return
-
-    await state.update_data(additive=selected, addon_price=additives[selected])
-    await OrderHookah.next()
-    await message.answer("Введите контактный номер телефона (Telegram / WhatsApp):", reply_markup=types.ReplyKeyboardMarkup(resize_keyboard=True).add("Отмена"))
-
-# Телефон
-@dp.message_handler(state=OrderHookah.phone)
-async def set_phone(message: types.Message, state: FSMContext):
-    await state.update_data(phone=message.text)
-    await OrderHookah.next()
-    await message.answer("Комментарий к заказу (необязательно). Можешь просто нажать 'Отмена', чтобы пропустить.")
-
-# Комментарий
-@dp.message_handler(state=OrderHookah.comment)
-async def set_comment(message: types.Message, state: FSMContext):
-    comment = message.text if message.text != "Отмена" else "Без комментария"
-    await state.update_data(comment=comment)
-    await OrderHookah.next()
-
+@dp.message_handler(state=Order.comment)
+async def finish_order(m: types.Message, state: FSMContext):
+    await state.update_data(comment=m.text if m.text.strip() != "-" else "Без комментария")
     data = await state.get_data()
-    total = data['price'] + data['addon_price']
+    total = data["price"] + data["addon_price"]
 
-    order_text = (
-        f"<b>Новый заказ кальяна:</b>\n"
-        f"Гость: @{message.from_user.username or message.from_user.full_name}\n"
-        f"Чаша: {data['bowl']} — {data['price']}₽\n"
-        f"Крепость: {data['strength']}\n"
-        f"Добавка: {data['additive']}\n"
-        f"Вкусы: {data['flavors']}\n"
-        f"Телефон: {data['phone']}\n"
-        f"Комментарий: {comment}\n"
-        f"<b>Итого: {total}₽</b>\n"
-        f"Способ оплаты: наличные / перевод\n\n"
-        f"Статус: ❌ Не подтверждён"
+    user_tag = f"@{m.from_user.username}" if m.from_user.username else m.from_user.full_name
+    order_txt = (f"<b>Новый заказ кальяна:</b>\n\n"
+                 f"Гость: {user_tag}\n"
+                 f"Чаша: {data['bowl']} — {data['price']}₽\n"
+                 f"Крепость: {data['strength']}\n"
+                 f"Добавка: {data['additive']}\n"
+                 f"Вкусы: {data['flavors']}\n"
+                 f"Телефон: {data['phone']}\n"
+                 f"Комментарий: {data['comment']}\n"
+                 f"<b>Итого: {total}₽</b>\n"
+                 f"Оплата: наличные/перевод.\n\n"
+                 f"Статус: ❌ Не подтверждён")
+
+    # inline‑кнопки подтверждения
+    kb = types.InlineKeyboardMarkup()
+    kb.add(
+        types.InlineKeyboardButton("✅ Подтвердить",
+                                   callback_data=order_cb.new(action="ok", user_id=m.from_user.id)),
+        types.InlineKeyboardButton("❌ Отменить",
+                                   callback_data=order_cb.new(action="cancel", user_id=m.from_user.id))
     )
 
-    # Отправка в чат сотрудников
-    await bot.send_message(chat_id=STAFF_CHAT_ID, text=order_text, parse_mode="HTML")
-
-    # Сообщение клиенту
-    await message.answer("Спасибо! Ваш заказ принят, мы свяжемся с вами в ближайшее время 🙌", reply_markup=types.ReplyKeyboardRemove())
+    await bot.send_message(STAFF_CHAT, order_txt, reply_markup=kb)
+    await m.answer("Спасибо! Заказ передан сотрудникам 😊", reply_markup=types.ReplyKeyboardRemove())
     await state.finish()
-if __name__ == '__main__':
+
+# ──────────────────  обработка inline‑кнопок в чате персонала ──────────────────
+@dp.callback_query_handler(order_cb.filter())
+async def cb_staff(query: types.CallbackQuery, callback_data: dict):
+    action   = callback_data["action"]
+    user_id  = int(callback_data["user_id"])
+
+    if action == "ok":
+        new_text = query.message.html_text.replace("❌ Не подтверждён", "✅ Подтверждён")
+        status   = "✅ Заказ подтверждён!"
+    else:
+        new_text = query.message.html_text.replace("❌ Не подтверждён", "❌ Отменён")
+        status   = "❌ Заказ отменён."
+
+    await query.message.edit_text(new_text, reply_markup=None)
+    await bot.send_message(user_id, status)
+    await query.answer("Статус обновлён")
+
+# ─────────────────────────  запуск ─────────────────────────
+if __name__ == "__main__":
     from aiogram import executor
     executor.start_polling(dp, skip_updates=True)
