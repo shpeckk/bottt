@@ -2,13 +2,13 @@ from aiogram import Bot, Dispatcher, executor, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
+from dotenv import load_dotenv
 import os
 
-API_TOKEN = os.getenv('7957692959:AAGYNF8vHZaHanfSIxjc-l3rtxBALhJ6PDE')
-STAFF_CHAT_ID = os.getenv(-1002682478434)  # Например: -100123456789
+load_dotenv()  # загрузить переменные из .env
 
-bot = Bot(token=API_TOKEN)
-dp = Dispatcher(bot, storage=MemoryStorage())
+API_TOKEN = os.getenv('BOT_TOKEN')
+STAFF_CHAT_ID = int(os.getenv('STAFF_CHAT_ID'))  # обязательно конвертируем в int
 
 # Состояния FSM
 class OrderHookah(StatesGroup):
